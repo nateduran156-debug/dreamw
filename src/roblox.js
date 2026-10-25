@@ -56,7 +56,7 @@ async function getRoleIdForRank(rank) {
   return role.id;
 }
 
-export async function assignRank(username, rank, apiKey) {
+async function changeRole(username, rank, apiKey, action) {
   if (!apiKey) {
     throw new Error("The Roblox Open Cloud API key is not configured.");
   }
@@ -64,25 +64,37 @@ export async function assignRank(username, rank, apiKey) {
   const user = await findRobloxUser(username);
   if (!user) throw new Error(`No Roblox account named "${username}" was found.`);
 
-  const [membershipId, roleId] = await Promise.all([
-    getMembershipId(user.id, apiKey),
-    getRoleIdForRank(rank),
-  ]);
-  const response = await fetch(
-    `${CLOUD_API}/groups/${GROUP_ID}/memberships/${membershipId}:assignRole`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
+  try {
+    const [membershipId, roleId] = await Promise.all([
+      getMembershipId(user.id, apiKey),
+      getRoleIdForRank(rank),
+    ]);
+    const response = await fetch(
+      `${CLOUD_API}/groups/${GROUP_ID}/memberships/${membershipId}:${action}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          role: `groups/${GROUP_ID}/roles/${roleId}`,
+        }),
       },
-      body: JSON.stringify({
-        role: `groups/${GROUP_ID}/roles/${roleId}`,
-      }),
-    },
-  );
-  await readJson(response);
-  return { username: user.name, rank };
+    );
+    await readJson(response);
+    return { username: user.name, userId: user.id, rank };
+  } catch (error) {
+    if (error instanceof Error) {
+      error.robloxUsername = user.name;
+      error.robloxUserId = user.id;
+    }
+    throw error;
+  }
+}
+
+export async function assignRank(username, rank, apiKey) {
+  return changeRole(username, rank, apiKey, "assignRole");
 }
 
 export async function applyTag(username, tagKey, apiKey) {
@@ -91,6 +103,31 @@ export async function applyTag(username, tagKey, apiKey) {
   return assignRank(username, tag.rank, apiKey);
 }
 
-export async function stripTag(username, apiKey) {
-  return assignRank(username, 0, apiKey);
+export async function stripTag(username, tagKey, apiKey) {
+  const tag = TAGS[tagKey];
+  if (!tag) throw new Error("Unknown tag section.");
+  return changeRole(username, tag.rank, apiKey, "unassignRole");
+}
+
+export async function getRobloxAvatarUrl(userId) {
+  const params = new URLSearchParams({
+    userIds: String(userId),
+    size: "150x150",
+    format: "Png",
+    isCircular: "true",
+  });
+
+  try {
+    const response = await fetch(
+      `https://thumbnails.roblox.com/v1/users/avatar-headshot?${params}`,
+    );
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => ({}));
+    const thumbnail = data.data?.find(
+      (entry) => Number(entry.targetId) === Number(userId),
+    ) ?? data.data?.[0];
+    return thumbnail?.imageUrl ?? null;
+  } catch {
+    return null;
+  }
 }

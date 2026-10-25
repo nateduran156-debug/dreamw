@@ -1,4 +1,5 @@
 import {
+  PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
 import { GROUP_URL, TAGS } from "./config.js";
@@ -7,6 +8,7 @@ import {
   addRaidPoints,
   addTagWhitelist,
   canUseTags,
+  getCommandHistory,
   getLeaderboardMessage,
   getRaidLeaderboard,
   isAdmin,
@@ -17,7 +19,7 @@ import {
   removeTagWhitelist,
   setLeaderboardMessage,
 } from "./storage.js";
-import { applyTag, stripTag } from "./roblox.js";
+import { applyTag, getRobloxAvatarUrl, stripTag } from "./roblox.js";
 import { COLORS, leaderboardPayload, respond } from "./ui.js";
 
 const tagChoiceOptions = [
@@ -27,6 +29,17 @@ const tagChoiceOptions = [
 
 function requireGuild(interaction) {
   return Boolean(interaction.guildId);
+}
+
+function isGuildAdministrator(interaction) {
+  return interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
+}
+
+function canManageServer(interaction, context) {
+  return (
+    isGuildAdministrator(interaction) ||
+    isAdmin(interaction.guildId, interaction.user.id, context.ownerId)
+  );
 }
 
 function mentions(ids) {
@@ -105,13 +118,16 @@ function tagCommand(name, label, rank) {
       if (!requireGuild(interaction)) {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
-      if (!canUseTags(interaction.guildId, interaction.user.id, context.ownerId)) {
+      if (
+        !canUseTags(interaction.guildId, interaction.user.id, context.ownerId) &&
+        !isGuildAdministrator(interaction)
+      ) {
         return respond(interaction, "No Access", [
           "> Ask an admin to add you with `/tag-wl add`.",
         ], { color: COLORS.red });
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: false });
       try {
         const result = await applyTag(
           interaction.options.getString("username", true),
@@ -121,11 +137,25 @@ function tagCommand(name, label, rank) {
         return respond(interaction, "Tag Applied", [
           `> ${result.username} was given the ${label} role.`,
           `> Roblox group rank: ${rank}.`,
-        ], { color: COLORS.green });
+        ], {
+          color: COLORS.green,
+          ephemeral: false,
+          thumbnailUrl: await getRobloxAvatarUrl(result.userId),
+          thumbnailAlt: `${result.username}'s circular Roblox avatar`,
+        });
       } catch (error) {
         return respond(interaction, "Tag Not Applied", [
           `> ${error.message}`,
-        ], { color: COLORS.red });
+        ], {
+          color: COLORS.red,
+          ephemeral: false,
+          thumbnailUrl: error.robloxUserId
+            ? await getRobloxAvatarUrl(error.robloxUserId)
+            : null,
+          thumbnailAlt: error.robloxUsername
+            ? `${error.robloxUsername}'s circular Roblox avatar`
+            : undefined,
+        });
       }
     },
   };
@@ -192,7 +222,7 @@ function raidPointsCommand() {
 
       const action = interaction.options.getSubcommand();
       if (action === "add") {
-        if (!isAdmin(interaction.guildId, interaction.user.id, context.ownerId)) {
+        if (!canManageServer(interaction, context)) {
           return respond(interaction, "No Access", [
             "> Only admins can add raid points.",
           ], { color: COLORS.red });
@@ -266,12 +296,16 @@ function whitelistHandlers(name, kind) {
       if (!requireGuild(interaction)) {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
-      if (kind === "admins" && !isOwner(interaction.user.id, context.ownerId)) {
+      if (
+        kind === "admins" &&
+        !isOwner(interaction.user.id, context.ownerId) &&
+        !isGuildAdministrator(interaction)
+      ) {
         return respond(interaction, "No Access", [
-          "> Only the bot owner can manage admins.",
+          "> Only the bot owner or a Discord server Administrator can manage admins.",
         ], { color: COLORS.red });
       }
-      if (kind !== "admins" && !isAdmin(interaction.guildId, interaction.user.id, context.ownerId)) {
+      if (kind !== "admins" && !canManageServer(interaction, context)) {
         return respond(interaction, "No Access", [
           "> Only admins can manage the tag whitelist.",
         ], { color: COLORS.red });
@@ -308,7 +342,7 @@ function stripTagCommand() {
   return {
     data: new SlashCommandBuilder()
       .setName("strip-tag")
-      .setDescription("Reset one Roblox account to the group's base rank")
+      .setDescription("Remove one selected tag role from a Roblox account")
       .addStringOption((option) =>
         option
           .setName("username")
@@ -326,48 +360,82 @@ function stripTagCommand() {
       if (!requireGuild(interaction)) {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
-      if (!canUseTags(interaction.guildId, interaction.user.id, context.ownerId)) {
+      if (
+        !canUseTags(interaction.guildId, interaction.user.id, context.ownerId) &&
+        !isGuildAdministrator(interaction)
+      ) {
         return respond(interaction, "No Access", [
           "> Ask an admin to add you with `/tag-wl add`.",
         ], { color: COLORS.red });
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: false });
       try {
         const username = interaction.options.getString("username", true);
         const section = interaction.options.getString("section", true);
-        const result = await stripTag(username, context.robloxApiKey);
+        const result = await stripTag(username, section, context.robloxApiKey);
         return respond(interaction, "Tag Removed", [
-          `> ${result.username} was reset to the group's base rank.`,
-          `> Section: ${section === "dream" ? "DREAM" : "1738"}.`,
-        ], { color: COLORS.green });
+          `> The ${section === "dream" ? "DREAM" : "1738"} role was removed from ${result.username}.`,
+        ], {
+          color: COLORS.green,
+          ephemeral: false,
+          thumbnailUrl: await getRobloxAvatarUrl(result.userId),
+          thumbnailAlt: `${result.username}'s circular Roblox avatar`,
+        });
       } catch (error) {
         return respond(interaction, "Tag Not Removed", [
           `> ${error.message}`,
-        ], { color: COLORS.red });
+        ], {
+          color: COLORS.red,
+          ephemeral: false,
+          thumbnailUrl: error.robloxUserId
+            ? await getRobloxAvatarUrl(error.robloxUserId)
+            : null,
+          thumbnailAlt: error.robloxUsername
+            ? `${error.robloxUsername}'s circular Roblox avatar`
+            : undefined,
+        });
       }
     },
   };
 }
 
-function helpCommand() {
+function tagHistoryCommand() {
   return {
     data: new SlashCommandBuilder()
-      .setName("help")
-      .setDescription("Show bot commands and access rules"),
-    async execute(interaction) {
-      return respond(interaction, "Bot Commands", [
-        "> `/tag-1738 username` — assign Roblox group rank 17.",
-        "> `/tag-dream username` — assign Roblox group rank 6.",
-        "> `/strip-tag username section` — reset one account to rank 0.",
-        "> `/group` — show the Roblox community link.",
-        "> `/raidpoints add user amount` — admins add points.",
-        "> `/raidpoints lb` — post or refresh the live leaderboard.",
-        "> `/whitelist-admin add|remove|list` — owner manages admins.",
-        "> `/whitelist-member add|remove|list` — admins manage tag access.",
-        "> `/tag-wl add|remove|list` — same tag-access whitelist, shorter command.",
-        "> Only the bot owner can manage admins. Admins manage the tag whitelist and raid points.",
-      ]);
+      .setName("tag-history")
+      .setDescription("Show recent bot command activity and targets")
+      .addIntegerOption((option) =>
+        option
+          .setName("limit")
+          .setDescription("Number of recent actions to show (1–25)")
+          .setMinValue(1)
+          .setMaxValue(25),
+      ),
+    async execute(interaction, context) {
+      if (!requireGuild(interaction)) {
+        return respond(interaction, "Server Only", ["> Use this command in a server."]);
+      }
+      if (!canManageServer(interaction, context)) {
+        return respond(interaction, "No Access", [
+          "> Only admins can view command history.",
+        ], { color: COLORS.red });
+      }
+
+      const limit = interaction.options.getInteger("limit") ?? 10;
+      const entries = getCommandHistory(interaction.guildId, limit);
+      const lines = entries.length
+        ? entries.map((entry) => {
+            const timestamp = Math.floor(Date.parse(entry.timestamp) / 1000);
+            const when = Number.isFinite(timestamp) ? `<t:${timestamp}:f>` : "Unknown time";
+            const target = entry.target || "no target";
+            const outcome = entry.outcome === "error" ? "error" : "ran";
+            return `> ${when} — <@${entry.actorId}> ran \`${entry.command}\` → ${target} (${outcome})`;
+          })
+        : ["> No command history has been recorded yet."];
+      return respond(interaction, "Recent Command History", lines, {
+        color: COLORS.blue,
+      });
     },
   };
 }
@@ -380,7 +448,7 @@ const commands = [
   whitelistHandlers("whitelist-member", "members"),
   whitelistHandlers("tag-wl", "members"),
   stripTagCommand(),
-  helpCommand(),
+  tagHistoryCommand(),
   {
     data: new SlashCommandBuilder()
       .setName("group")

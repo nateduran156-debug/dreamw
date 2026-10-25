@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 const dataPath = resolve(
   process.env.BOT_DATA_FILE ?? "data/bot-data.json",
 );
+const MAX_AUDIT_EVENTS = 500;
 
 function emptyState() {
   return {
@@ -40,7 +41,9 @@ function getGuildState(state, guildId) {
     tagWhitelist: [],
     raidPoints: {},
     leaderboard: null,
+    auditLog: [],
   };
+  state.guilds[guildId].auditLog ??= [];
   return state.guilds[guildId];
 }
 
@@ -124,6 +127,29 @@ export function setLeaderboardMessage(guildId, channelId, messageId) {
   const state = readState();
   getGuildState(state, guildId).leaderboard = { channelId, messageId };
   writeState(state);
+}
+
+export function recordCommandAudit(guildId, event) {
+  const state = readState();
+  const guild = getGuildState(state, guildId);
+  guild.auditLog.push({
+    timestamp: new Date().toISOString(),
+    actorId: String(event.actorId ?? ""),
+    command: String(event.command ?? "").slice(0, 80),
+    target: String(event.target ?? "").slice(0, 160),
+    outcome: event.outcome === "error" ? "error" : "completed",
+  });
+  if (guild.auditLog.length > MAX_AUDIT_EVENTS) {
+    guild.auditLog = guild.auditLog.slice(-MAX_AUDIT_EVENTS);
+  }
+  writeState(state);
+}
+
+export function getCommandHistory(guildId, limit = 10) {
+  const state = readState();
+  return [...getGuildState(state, guildId).auditLog]
+    .slice(-Math.max(1, Math.min(25, limit)))
+    .reverse();
 }
 
 export function getDataFilePath() {

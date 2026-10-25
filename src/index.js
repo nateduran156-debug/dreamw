@@ -1,7 +1,8 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { getRuntimeConfig } from "./config.js";
 import { getCommands } from "./commands.js";
-import { COLORS, cardPayload } from "./ui.js";
+import { recordCommandAudit } from "./storage.js";
+import { COLORS, respond } from "./ui.js";
 
 const config = getRuntimeConfig();
 if (config.missing.length) {
@@ -26,25 +27,48 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const command = commandMap.get(interaction.commandName);
-  if (!command) return;
+  if (!command) {
+    await respond(interaction, "Command Not Available", [
+      "> This command is no longer registered. Refresh the command list and try again.",
+    ], { color: COLORS.cyan }).catch(() => {});
+    return;
+  }
 
+  let auditOutcome = "completed";
   try {
     await command.execute(interaction, {
       ownerId: config.ownerId,
       robloxApiKey: config.robloxApiKey,
     });
   } catch (error) {
+    auditOutcome = "error";
     console.error(`/${interaction.commandName} failed.`, error);
-    const message = cardPayload(
+    await respond(
+      interaction,
       "Command Error",
       ["> That command failed. Check the bot logs and try again."],
-      COLORS.red,
-      true,
-    );
-    if (interaction.deferred || interaction.replied) {
-      await interaction.followUp(message).catch(() => {});
-    } else {
-      await interaction.reply(message).catch(() => {});
+      { color: COLORS.cyan },
+    ).catch(() => {});
+  } finally {
+    if (interaction.guildId) {
+      try {
+        const subcommand = interaction.options.getSubcommand(false);
+        const robloxUsername = interaction.options.getString("username");
+        const targetUser = interaction.options.getUser("user");
+        const target = robloxUsername
+          ? `Roblox username: ${robloxUsername}`
+          : targetUser
+            ? `<@${targetUser.id}>`
+            : "";
+        recordCommandAudit(interaction.guildId, {
+          actorId: interaction.user.id,
+          command: `/${interaction.commandName}${subcommand ? ` ${subcommand}` : ""}`,
+          target,
+          outcome: auditOutcome,
+        });
+      } catch (error) {
+        console.error("Could not save command history.", error);
+      }
     }
   }
 });
