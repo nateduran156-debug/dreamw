@@ -1,18 +1,18 @@
 # Roblox Raid Points Discord Bot
 
-A small Discord bot for the To You In A Thousand Years Roblox community. It assigns the two requested Roblox group ranks, tracks raid points, and keeps a live leaderboard message updated.
+A small Discord bot for the To You In A Thousand Years Roblox community. It assigns the DREAM group rank, tracks raid points, and keeps a live leaderboard message updated.
 
 The bot uses Roblox Open Cloud. It does not accept, request, or save a `.ROBLOSECURITY` cookie.
 
 ## Setup
 
 1. Create a Discord application and bot in the Discord Developer Portal. Add the bot to your server with the `bot` and `applications.commands` scopes.
-2. Create a Roblox Open Cloud API key for a Roblox account that can manage member roles in the group. Give it the minimum needed `group:read` and `group:write` permissions for group `1103375761`.
+2. For Roblox tag commands, create a Roblox Open Cloud API key for an account that can manage member roles in group `1103375761`. Give it the minimum needed `group:read` and `group:write` permissions.
 3. Copy `.env.example` to `.env` for local hosting, or set each variable as a secret/environment variable on your hosting provider:
    - `DISCORD_BOT_TOKEN` — secret bot token
    - `DISCORD_CLIENT_ID` — Discord application ID
    - `BOT_OWNER_ID` — Discord user ID for the bot owner and initial allowlist manager
-   - `ROBLOX_OPEN_CLOUD_API_KEY` — secret Open Cloud key
+   - `ROBLOX_OPEN_CLOUD_API_KEY` — secret Open Cloud key (only needed for Roblox tag commands)
 4. Install dependencies with `npm install` (or `pnpm install`).
 5. Run `npm start` (or `pnpm start`). This registers commands globally, then starts the bot. After updating the bot, run `npm run deploy` or restart with `npm start` so Discord receives the latest command list. Global command changes can take a little while to appear in Discord.
 
@@ -24,9 +24,8 @@ All commands are registered globally and can be used in a server where the bot i
 
 ### Roblox tags
 
-- `/tag-1738 username` — assigns the group role at rank 17 to that Roblox account.
 - `/tag-dream username` — assigns the group role at rank 6 to that Roblox account.
-- `/strip-tag username section` — removes only the selected tag role from one Roblox account. `section` must be `1738` or `dream`; this only changes one username at a time.
+- `/strip-tag username section` — removes the DREAM tag role from one Roblox account. This only changes one username at a time.
 - `/tag-history limit` — bot admins view recent bot commands, who ran them, and their targets (up to 25 entries).
 - `/group` — posts the Roblox community link.
 

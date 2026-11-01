@@ -21,7 +21,6 @@ test("registers the requested command set globally by name", () => {
   const names = commands.map((command) => command.name);
 
   for (const required of [
-    "tag-1738",
     "tag-dream",
     "raidpoints",
     "whitelist-admin",
@@ -34,25 +33,32 @@ test("registers the requested command set globally by name", () => {
     assert.ok(names.includes(required), `missing /${required}`);
   }
 
+  assert.ok(!names.includes("tag-1738"), "/tag-1738 should be removed");
   assert.ok(!names.includes("help"), "/help should not be registered");
   assert.equal(new Set(names).size, names.length);
+  const stripTag = commands.find((command) => command.name === "strip-tag");
+  assert.deepEqual(
+    stripTag.options.find((option) => option.name === "section").choices.map(
+      ({ name, value }) => ({ name, value }),
+    ),
+    [{ name: "DREAM", value: "dream" }],
+  );
 });
 
-test("uses the specified Roblox group and ranks", () => {
+test("uses the specified Roblox group and DREAM rank", () => {
   assert.equal(GROUP_ID, "1103375761");
   assert.match(GROUP_URL, /1103375761/);
-  assert.equal(TAGS["1738"].rank, 17);
   assert.equal(TAGS.dream.rank, 6);
 });
 
-test("requires runtime secrets without exposing their values", () => {
+test("only requires Discord settings to start and deploy commands", () => {
   const config = getRuntimeConfig({});
   assert.deepEqual(config.missing, [
     "DISCORD_BOT_TOKEN",
     "DISCORD_CLIENT_ID",
     "BOT_OWNER_ID",
-    "ROBLOX_OPEN_CLOUD_API_KEY",
   ]);
+  assert.equal(config.robloxApiKey, undefined);
 });
 
 test("reference-style cards use quote-prefixed details and no emoji", () => {
@@ -170,6 +176,53 @@ test("an allowlisted server Administrator can post the live leaderboard", async 
     responsePayload.components[0].components[0].components[0].content,
     "## Leaderboard Ready",
   );
+});
+
+test("raid point updates defer before refreshing a saved leaderboard", async () => {
+  const { setLeaderboardMessage } = await import("../src/storage.js");
+  const guildId = "guild-raid-points-defer-test";
+  setLeaderboardMessage(guildId, "leaderboard-channel", "leaderboard-message");
+
+  let deferred = false;
+  const message = {
+    edit: async () => message,
+  };
+  const channel = {
+    id: "leaderboard-channel",
+    isTextBased: () => true,
+    messages: {
+      fetch: async () => {
+        assert.equal(deferred, true);
+        return message;
+      },
+    },
+  };
+  const interaction = {
+    guildId,
+    guild: {
+      id: guildId,
+      channels: { fetch: async () => channel },
+      members: { fetch: async () => ({ displayName: "Player" }) },
+    },
+    user: { id: "raid-admin", username: "RaidAdmin" },
+    options: {
+      getSubcommand: () => "add",
+      getUser: () => ({ id: "raid-target", username: "Player" }),
+      getInteger: () => 7,
+    },
+    deferReply: async (options) => {
+      assert.deepEqual(options, { ephemeral: true });
+      deferred = true;
+      interaction.deferred = true;
+    },
+    editReply: async (payload) => payload,
+  };
+  const command = getCommands().find(
+    (entry) => entry.data.name === "raidpoints",
+  );
+
+  await command.execute(interaction, { ownerId: "raid-admin" });
+  assert.equal(deferred, true);
 });
 
 test("the allowlisted bot owner can use the group command", async () => {

@@ -21,7 +21,6 @@ import { applyTag, getRobloxAvatarUrl, stripTag } from "./roblox.js";
 import { COLORS, leaderboardPayload, respond } from "./ui.js";
 
 const tagChoiceOptions = [
-  { name: "1738", value: "1738" },
   { name: "DREAM", value: "dream" },
 ];
 
@@ -115,11 +114,12 @@ function adminCommand() {
     );
 }
 
-function tagCommand(name, label, rank) {
+function tagCommand(tagKey) {
+  const tag = TAGS[tagKey];
   return {
     data: new SlashCommandBuilder()
-      .setName(name)
-      .setDescription(`Give the ${label} Roblox group tag (rank ${rank})`)
+      .setName(tag.command)
+      .setDescription(`Give the ${tag.label} Roblox group tag (rank ${tag.rank})`)
       .addStringOption((option) =>
         option
           .setName("username")
@@ -142,12 +142,12 @@ function tagCommand(name, label, rank) {
       try {
         const result = await applyTag(
           interaction.options.getString("username", true),
-          label === "DREAM" ? "dream" : "1738",
+          tagKey,
           context.robloxApiKey,
         );
         return respond(interaction, "Tag Applied", [
-          `> ${result.username} was given the ${label} role.`,
-          `> Roblox group rank: ${rank}.`,
+          `> ${result.username} was given the ${tag.label} role.`,
+          `> Roblox group rank: ${tag.rank}.`,
         ], {
           color: COLORS.green,
           ephemeral: false,
@@ -238,6 +238,7 @@ function raidPointsCommand() {
             "> Only bot admins can add raid points.",
           ], { color: COLORS.red });
         }
+        await interaction.deferReply({ ephemeral: true });
         const user = interaction.options.getUser("user", true);
         const amount = interaction.options.getInteger("amount", true);
         const total = addRaidPoints(interaction.guildId, user.id, amount);
@@ -384,7 +385,7 @@ function stripTagCommand() {
         const section = interaction.options.getString("section", true);
         const result = await stripTag(username, section, context.robloxApiKey);
         return respond(interaction, "Tag Removed", [
-          `> The ${section === "dream" ? "DREAM" : "1738"} role was removed from ${result.username}.`,
+          `> The ${TAGS[section].label} role was removed from ${result.username}.`,
         ], {
           color: COLORS.green,
           ephemeral: false,
@@ -450,8 +451,7 @@ function tagHistoryCommand() {
 }
 
 const commands = [
-  tagCommand(TAGS["1738"].command, TAGS["1738"].label, TAGS["1738"].rank),
-  tagCommand(TAGS.dream.command, TAGS.dream.label, TAGS.dream.rank),
+  tagCommand("dream"),
   raidPointsCommand(),
   whitelistHandlers("whitelist-admin", "admins"),
   whitelistHandlers("whitelist-member", "members"),
