@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getRuntimeConfig, GROUP_ID, GROUP_URL, TAGS } from "../src/config.js";
-import { cardPayload } from "../src/ui.js";
+import { cardPayload, respond } from "../src/ui.js";
 
 process.env.BOT_DATA_FILE ??= join(
   tmpdir(),
@@ -13,7 +13,10 @@ const { addBotWhitelist } = await import("../src/storage.js");
 const { getCommandPayloads, getCommands } = await import("../src/commands.js");
 
 function responseTitle(payload) {
-  return payload.components[0].components[0].components[0].content;
+  const heading = payload.components[0].components[0];
+  return heading.type === 9
+    ? heading.components[0].content
+    : heading.content;
 }
 
 test("registers the requested command set globally by name", () => {
@@ -69,6 +72,14 @@ test("reference-style cards use quote-prefixed details and no emoji", () => {
   assert.equal(payload.components[0].accent_color, 0x00d1ff);
 });
 
+test("cards without an avatar use a valid text heading", () => {
+  const payload = cardPayload("Raid Points Added", ["> Added points."], 0x00d1ff);
+  const heading = payload.components[0].components[0];
+
+  assert.equal(heading.type, 10);
+  assert.equal(heading.content, "## Raid Points Added");
+});
+
 test("command replies silently mention the invoking user", async () => {
   const payload = cardPayload(
     "Test",
@@ -84,6 +95,24 @@ test("command replies silently mention the invoking user", async () => {
     repliedUser: false,
   });
   assert.equal(payload.flags & (1 << 12), 1 << 12);
+});
+
+test("deferred replies only use flags allowed when editing", async () => {
+  let responsePayload;
+  const interaction = {
+    user: { id: "12345" },
+    deferred: true,
+    editReply: async (payload) => {
+      responsePayload = payload;
+      return payload;
+    },
+  };
+
+  await respond(interaction, "Done", ["> Finished."]);
+
+  assert.equal(responsePayload.flags & (1 << 15), 1 << 15);
+  assert.equal(responsePayload.flags & (1 << 6), 0);
+  assert.equal(responsePayload.flags & (1 << 12), 0);
 });
 
 test("a Discord server Administrator cannot use commands without bot allowlist access", async () => {
@@ -173,7 +202,7 @@ test("an allowlisted server Administrator can post the live leaderboard", async 
 
   assert.equal(leaderboardPayload.components[0].accent_color, 0x00d1ff);
   assert.equal(
-    responsePayload.components[0].components[0].components[0].content,
+    responseTitle(responsePayload),
     "## Leaderboard Ready",
   );
 });

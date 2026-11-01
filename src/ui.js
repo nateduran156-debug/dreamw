@@ -21,18 +21,17 @@ export function cardPayload(
   const mentionUserId = options.mentionUserId
     ? String(options.mentionUserId)
     : null;
-  const titleSection = {
-    type: 9,
-    components: [{ type: 10, content: `## ${title}` }],
-  };
-
-  if (options.thumbnailUrl) {
-    titleSection.accessory = {
-      type: 11,
-      media: { url: options.thumbnailUrl },
-      description: options.thumbnailAlt ?? title,
-    };
-  }
+  const titleComponent = options.thumbnailUrl
+    ? {
+        type: 9,
+        components: [{ type: 10, content: `## ${title}` }],
+        accessory: {
+          type: 11,
+          media: { url: options.thumbnailUrl },
+          description: options.thumbnailAlt ?? title,
+        },
+      }
+    : { type: 10, content: `## ${title}` };
 
   return {
     flags:
@@ -47,7 +46,7 @@ export function cardPayload(
         type: 17,
         accent_color: color,
         components: [
-          titleSection,
+          titleComponent,
           { type: 14, divider: true, spacing: 1 },
           { type: 10, content: body },
         ],
@@ -74,7 +73,7 @@ export async function respond(interaction, title, lines, options = {}) {
   );
 
   if (interaction.deferred || interaction.replied) {
-    payload.flags &= ~EPHEMERAL;
+    payload.flags &= ~(EPHEMERAL | SUPPRESS_NOTIFICATIONS);
     return interaction.editReply(payload);
   }
   return interaction.reply(payload);
