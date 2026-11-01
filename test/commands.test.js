@@ -9,7 +9,7 @@ process.env.BOT_DATA_FILE ??= join(
   tmpdir(),
   `discord-roblox-bot-test-${process.pid}.json`,
 );
-const { addBotWhitelist } = await import("../src/storage.js");
+const { addBotWhitelist, addRaidPoints } = await import("../src/storage.js");
 const { getCommandPayloads, getCommands } = await import("../src/commands.js");
 
 function responseTitle(payload) {
@@ -165,7 +165,11 @@ test("a Discord server Administrator cannot add raid points without bot allowlis
 test("an allowlisted server Administrator can post the live leaderboard", async () => {
   let responsePayload;
   let leaderboardPayload;
-  await addBotWhitelist("guild-leaderboard-test", "leaderboard-user");
+  const guildId = "guild-leaderboard-test";
+  await addBotWhitelist(guildId, "leaderboard-user");
+  for (let points = 1; points <= 12; points += 1) {
+    addRaidPoints(guildId, `raid-user-${points}`, points);
+  }
   const channel = {
     id: "leaderboard-channel",
     isTextBased: () => true,
@@ -175,9 +179,9 @@ test("an allowlisted server Administrator can post the live leaderboard", async 
     },
   };
   const interaction = {
-    guildId: "guild-leaderboard-test",
+    guildId,
     guild: {
-      id: "guild-leaderboard-test",
+      id: guildId,
       channels: { fetch: async () => channel },
     },
     channel,
@@ -201,6 +205,23 @@ test("an allowlisted server Administrator can post the live leaderboard", async 
   await command.execute(interaction, { ownerId: "bot-owner" });
 
   assert.equal(leaderboardPayload.components[0].accent_color, 0x00d1ff);
+  assert.deepEqual(leaderboardPayload.allowedMentions.users, [
+    "raid-user-12",
+    "raid-user-11",
+    "raid-user-10",
+    "raid-user-9",
+    "raid-user-8",
+    "raid-user-7",
+    "raid-user-6",
+    "raid-user-5",
+    "raid-user-4",
+    "raid-user-3",
+  ]);
+  assert.equal(leaderboardPayload.flags & (1 << 12), 1 << 12);
+  const leaderboardText =
+    leaderboardPayload.components[0].components[2].content;
+  assert.equal(leaderboardText.split("\n").length, 10);
+  assert.doesNotMatch(leaderboardText, /<@raid-user-[12]>/);
   assert.equal(
     responseTitle(responsePayload),
     "## Leaderboard Ready",
@@ -213,8 +234,12 @@ test("raid point updates defer before refreshing a saved leaderboard", async () 
   setLeaderboardMessage(guildId, "leaderboard-channel", "leaderboard-message");
 
   let deferred = false;
+  let editedLeaderboard;
   const message = {
-    edit: async () => message,
+    edit: async (payload) => {
+      editedLeaderboard = payload;
+      return message;
+    },
   };
   const channel = {
     id: "leaderboard-channel",
@@ -231,7 +256,6 @@ test("raid point updates defer before refreshing a saved leaderboard", async () 
     guild: {
       id: guildId,
       channels: { fetch: async () => channel },
-      members: { fetch: async () => ({ displayName: "Player" }) },
     },
     user: { id: "raid-admin", username: "RaidAdmin" },
     options: {
@@ -252,6 +276,8 @@ test("raid point updates defer before refreshing a saved leaderboard", async () 
 
   await command.execute(interaction, { ownerId: "raid-admin" });
   assert.equal(deferred, true);
+  assert.deepEqual(editedLeaderboard.allowedMentions.users, ["raid-target"]);
+  assert.equal(editedLeaderboard.flags & (1 << 12), 0);
 });
 
 test("the allowlisted bot owner can use the group command", async () => {

@@ -34,7 +34,7 @@ The bot resolves the username, looks up the account's group membership record, t
 ### Raid points
 
 - `/raidpoints add user amount` — adds 1–1000 points to a Discord member. Bot admins and the bot owner can use it.
-- `/raidpoints lb` — posts the leaderboard in the channel where it is used. The bot stores that message and edits it whenever points are added.
+- `/raidpoints lb` — posts the top 10 in the channel where it is used. Players in the top 10 are mentioned without notifications. The bot stores that message and edits it whenever points are added.
 
 Points are saved per server in `data/bot-data.json`. Keep that folder on persistent storage if you host the bot somewhere that resets local files.
 

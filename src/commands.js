@@ -175,15 +175,16 @@ function tagCommand(tagKey) {
 async function updateLeaderboardMessage(guild, channel, message) {
   const rows = getRaidLeaderboard(guild.id, 10);
   const lines = rows.length
-    ? await Promise.all(
-        rows.map(async (entry, index) => {
-          const member = await guild.members.fetch(entry.userId).catch(() => null);
-          const name = member?.displayName ?? `User ${entry.userId}`;
-          return `> ${index + 1}. ${name} — ${entry.amount} points`;
-        }),
+    ? rows.map(
+        (entry, index) =>
+          `> ${index + 1}. <@${entry.userId}> — ${entry.amount} points`,
       )
     : ["> No raid points have been added yet."];
-  const payload = leaderboardPayload(lines);
+  const payload = leaderboardPayload(
+    lines,
+    rows.map((entry) => entry.userId),
+    { suppressNotifications: !message },
+  );
 
   if (message) return message.edit(payload);
   return channel.send(payload);

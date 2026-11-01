@@ -18,9 +18,13 @@ export function cardPayload(
   options = {},
 ) {
   const body = Array.isArray(lines) ? lines.join("\n") : lines;
-  const mentionUserId = options.mentionUserId
-    ? String(options.mentionUserId)
-    : null;
+  const mentionUserIds = [
+    ...(options.mentionUserId ? [String(options.mentionUserId)] : []),
+    ...(options.mentionUserIds ?? []).map(String),
+  ];
+  const uniqueMentionUserIds = [...new Set(mentionUserIds)];
+  const suppressNotifications =
+    options.suppressNotifications ?? uniqueMentionUserIds.length > 0;
   const titleComponent = options.thumbnailUrl
     ? {
         type: 9,
@@ -37,9 +41,9 @@ export function cardPayload(
     flags:
       COMPONENTS_V2 |
       (ephemeral ? EPHEMERAL : 0) |
-      (mentionUserId ? SUPPRESS_NOTIFICATIONS : 0),
-    allowedMentions: mentionUserId
-      ? { parse: [], users: [mentionUserId], repliedUser: false }
+      (suppressNotifications ? SUPPRESS_NOTIFICATIONS : 0),
+    allowedMentions: uniqueMentionUserIds.length
+      ? { parse: [], users: uniqueMentionUserIds, repliedUser: false }
       : { parse: [] },
     components: [
       {
@@ -79,6 +83,13 @@ export async function respond(interaction, title, lines, options = {}) {
   return interaction.reply(payload);
 }
 
-export function leaderboardPayload(lines) {
-  return cardPayload("Raid Points Leaderboard", lines, COLORS.blue, false);
+export function leaderboardPayload(
+  lines,
+  mentionUserIds = [],
+  options = {},
+) {
+  return cardPayload("Raid Points Leaderboard", lines, COLORS.blue, false, {
+    mentionUserIds,
+    suppressNotifications: options.suppressNotifications,
+  });
 }
