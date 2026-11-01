@@ -57,9 +57,10 @@ export function isAdmin(guildId, userId, ownerId) {
   return getGuildState(state, guildId).admins.includes(userId);
 }
 
-export function canUseTags(guildId, userId, ownerId) {
+export function canUseBot(guildId, userId, ownerId) {
   if (isAdmin(guildId, userId, ownerId)) return true;
   const state = readState();
+  // Keep the legacy field name so existing allowlisted members retain access.
   return getGuildState(state, guildId).tagWhitelist.includes(userId);
 }
 
@@ -82,21 +83,21 @@ export function listAdmins(guildId) {
   return [...getGuildState(state, guildId).admins];
 }
 
-export function addTagWhitelist(guildId, userId) {
+export function addBotWhitelist(guildId, userId) {
   const state = readState();
   const guild = getGuildState(state, guildId);
   if (!guild.tagWhitelist.includes(userId)) guild.tagWhitelist.push(userId);
   writeState(state);
 }
 
-export function removeTagWhitelist(guildId, userId) {
+export function removeBotWhitelist(guildId, userId) {
   const state = readState();
   const guild = getGuildState(state, guildId);
   guild.tagWhitelist = guild.tagWhitelist.filter((id) => id !== userId);
   writeState(state);
 }
 
-export function listTagWhitelist(guildId) {
+export function listBotWhitelist(guildId) {
   const state = readState();
   return [...getGuildState(state, guildId).tagWhitelist];
 }

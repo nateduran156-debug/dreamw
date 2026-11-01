@@ -9,7 +9,12 @@ process.env.BOT_DATA_FILE ??= join(
   tmpdir(),
   `discord-roblox-bot-test-${process.pid}.json`,
 );
+const { addBotWhitelist } = await import("../src/storage.js");
 const { getCommandPayloads, getCommands } = await import("../src/commands.js");
+
+function responseTitle(payload) {
+  return payload.components[0].components[0].components[0].content;
+}
 
 test("registers the requested command set globally by name", () => {
   const commands = getCommandPayloads();
@@ -75,7 +80,7 @@ test("command replies silently mention the invoking user", async () => {
   assert.equal(payload.flags & (1 << 12), 1 << 12);
 });
 
-test("a Discord server Administrator can use the whitelist commands", async () => {
+test("a Discord server Administrator cannot use commands without bot allowlist access", async () => {
   let responsePayload;
   const interaction = {
     guildId: "guild-whitelist-test",
@@ -93,14 +98,10 @@ test("a Discord server Administrator can use the whitelist commands", async () =
 
   await command.execute(interaction, { ownerId: "bot-owner" });
 
-  assert.equal(
-    responsePayload.components[0].components[0].components[0].content,
-    "## Tag Whitelist",
-  );
-  assert.deepEqual(responsePayload.allowedMentions.users, ["server-admin"]);
+  assert.equal(responseTitle(responsePayload), "## Access Not Whitelisted");
 });
 
-test("a Discord server Administrator can add raid points", async () => {
+test("a Discord server Administrator cannot add raid points without bot allowlist access", async () => {
   let responsePayload;
   const interaction = {
     guildId: "guild-raid-points-test",
@@ -123,19 +124,13 @@ test("a Discord server Administrator can add raid points", async () => {
 
   await command.execute(interaction, { ownerId: "bot-owner" });
 
-  assert.match(
-    responsePayload.components[0].components[2].content,
-    /Added 7 points for Player/,
-  );
-  assert.match(
-    responsePayload.components[0].components[2].content,
-    /New total: 7/,
-  );
+  assert.equal(responseTitle(responsePayload), "## Access Not Whitelisted");
 });
 
-test("raidpoints lb posts and saves the cyan leaderboard", async () => {
+test("an allowlisted server Administrator can post the live leaderboard", async () => {
   let responsePayload;
   let leaderboardPayload;
+  await addBotWhitelist("guild-leaderboard-test", "leaderboard-user");
   const channel = {
     id: "leaderboard-channel",
     isTextBased: () => true,
@@ -152,6 +147,7 @@ test("raidpoints lb posts and saves the cyan leaderboard", async () => {
     },
     channel,
     user: { id: "leaderboard-user", username: "LeaderboardUser" },
+    memberPermissions: { has: () => true },
     options: { getSubcommand: () => "lb" },
     deferred: false,
     replied: false,
@@ -176,9 +172,10 @@ test("raidpoints lb posts and saves the cyan leaderboard", async () => {
   );
 });
 
-test("the group command responds with a silent mention", async () => {
+test("the allowlisted bot owner can use the group command", async () => {
   let responsePayload;
   const interaction = {
+    guildId: "guild-group-test",
     user: { id: "group-user", username: "GroupUser" },
     reply: async (payload) => {
       responsePayload = payload;
@@ -187,7 +184,7 @@ test("the group command responds with a silent mention", async () => {
   };
   const command = getCommands().find((entry) => entry.data.name === "group");
 
-  await command.execute(interaction);
+  await command.execute(interaction, { ownerId: "group-user" });
 
   assert.equal(responsePayload.allowedMentions.users[0], "group-user");
   assert.equal(responsePayload.flags & (1 << 12), 1 << 12);

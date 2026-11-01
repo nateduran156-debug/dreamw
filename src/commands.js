@@ -1,22 +1,20 @@
 import {
-  PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
 import { GROUP_URL, TAGS } from "./config.js";
 import {
   addAdmin,
   addRaidPoints,
-  addTagWhitelist,
-  canUseTags,
+  addBotWhitelist,
+  canUseBot,
   getCommandHistory,
   getLeaderboardMessage,
   getRaidLeaderboard,
   isAdmin,
-  isOwner,
   listAdmins,
-  listTagWhitelist,
+  listBotWhitelist,
   removeAdmin,
-  removeTagWhitelist,
+  removeBotWhitelist,
   setLeaderboardMessage,
 } from "./storage.js";
 import { applyTag, getRobloxAvatarUrl, stripTag } from "./roblox.js";
@@ -31,15 +29,29 @@ function requireGuild(interaction) {
   return Boolean(interaction.guildId);
 }
 
-function isGuildAdministrator(interaction) {
-  return interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
+function canManageBot(interaction, context) {
+  return isAdmin(interaction.guildId, interaction.user.id, context.ownerId);
 }
 
-function canManageServer(interaction, context) {
-  return (
-    isGuildAdministrator(interaction) ||
-    isAdmin(interaction.guildId, interaction.user.id, context.ownerId)
-  );
+function requireBotAllowlist(command) {
+  return {
+    ...command,
+    async execute(interaction, context = {}) {
+      if (!interaction.guildId) {
+        return respond(interaction, "Server Only", [
+          "> Use this bot in a server where it is installed.",
+        ]);
+      }
+
+      if (!canUseBot(interaction.guildId, interaction.user.id, context.ownerId)) {
+        return respond(interaction, "Access Not Whitelisted", [
+          "> Ask the bot owner or a bot admin to add you with `/whitelist-member add`.",
+        ], { color: COLORS.red });
+      }
+
+      return command.execute(interaction, context);
+    },
+  };
 }
 
 function mentions(ids) {
@@ -65,41 +77,41 @@ function whitelistCommand(name, description) {
       userIdOption(
         subcommand
           .setName("add")
-          .setDescription("Allow a user to use the Roblox tag commands"),
+          .setDescription("Allow a user to use bot commands"),
       ),
     )
     .addSubcommand((subcommand) =>
       userIdOption(
         subcommand
           .setName("remove")
-          .setDescription("Remove tag-command access from a user"),
+          .setDescription("Remove bot-command access from a user"),
       ),
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("list").setDescription("List users allowed to use tags"),
+      subcommand.setName("list").setDescription("List users allowed to use the bot"),
     );
 }
 
 function adminCommand() {
   return new SlashCommandBuilder()
     .setName("whitelist-admin")
-    .setDescription("Manage who can run admin commands")
+    .setDescription("Manage bot administrators")
     .addSubcommand((subcommand) =>
       userIdOption(
         subcommand
           .setName("add")
-          .setDescription("Add a server admin"),
+          .setDescription("Add a bot admin"),
       ),
     )
     .addSubcommand((subcommand) =>
       userIdOption(
         subcommand
           .setName("remove")
-          .setDescription("Remove a server admin"),
+          .setDescription("Remove a bot admin"),
       ),
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("list").setDescription("List server admins"),
+      subcommand.setName("list").setDescription("List bot admins"),
     );
 }
 
@@ -119,11 +131,10 @@ function tagCommand(name, label, rank) {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
       if (
-        !canUseTags(interaction.guildId, interaction.user.id, context.ownerId) &&
-        !isGuildAdministrator(interaction)
+        !canUseBot(interaction.guildId, interaction.user.id, context.ownerId)
       ) {
         return respond(interaction, "No Access", [
-          "> Ask an admin to add you with `/tag-wl add`.",
+          "> Ask a bot admin to add you with `/whitelist-member add`.",
         ], { color: COLORS.red });
       }
 
@@ -222,9 +233,9 @@ function raidPointsCommand() {
 
       const action = interaction.options.getSubcommand();
       if (action === "add") {
-        if (!canManageServer(interaction, context)) {
+        if (!canManageBot(interaction, context)) {
           return respond(interaction, "No Access", [
-            "> Only admins can add raid points.",
+            "> Only bot admins can add raid points.",
           ], { color: COLORS.red });
         }
         const user = interaction.options.getUser("user", true);
@@ -284,37 +295,36 @@ function raidPointsCommand() {
 }
 
 function whitelistHandlers(name, kind) {
-  const listFunction = kind === "admins" ? listAdmins : listTagWhitelist;
-  const addFunction = kind === "admins" ? addAdmin : addTagWhitelist;
-  const removeFunction = kind === "admins" ? removeAdmin : removeTagWhitelist;
+  const listFunction = kind === "admins" ? listAdmins : listBotWhitelist;
+  const addFunction = kind === "admins" ? addAdmin : addBotWhitelist;
+  const removeFunction = kind === "admins" ? removeAdmin : removeBotWhitelist;
 
   return {
     data: kind === "admins"
       ? adminCommand()
-      : whitelistCommand(name, "Manage who can use the Roblox tag commands"),
+      : whitelistCommand(name, "Manage who can use this bot"),
     async execute(interaction, context) {
       if (!requireGuild(interaction)) {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
       if (
         kind === "admins" &&
-        !isOwner(interaction.user.id, context.ownerId) &&
-        !isGuildAdministrator(interaction)
+        !isAdmin(interaction.guildId, interaction.user.id, context.ownerId)
       ) {
         return respond(interaction, "No Access", [
-          "> Only the bot owner or a Discord server Administrator can manage admins.",
+          "> Only the bot owner or an existing bot admin can manage bot admins.",
         ], { color: COLORS.red });
       }
-      if (kind !== "admins" && !canManageServer(interaction, context)) {
+      if (kind !== "admins" && !canManageBot(interaction, context)) {
         return respond(interaction, "No Access", [
-          "> Only admins can manage the tag whitelist.",
+          "> Only bot admins can manage the bot whitelist.",
         ], { color: COLORS.red });
       }
 
       const action = interaction.options.getSubcommand();
       if (action === "list") {
         const ids = listFunction(interaction.guildId);
-        return respond(interaction, kind === "admins" ? "Server Admins" : "Tag Whitelist", [
+        return respond(interaction, kind === "admins" ? "Bot Admins" : "Bot Allowlist", [
           ...mentions(ids),
         ]);
       }
@@ -331,8 +341,8 @@ function whitelistHandlers(name, kind) {
 
       return respond(interaction, action === "add" ? "Whitelist Updated" : "Whitelist Updated", [
         action === "add"
-          ? `> ${user.username} can now ${kind === "admins" ? "run admin commands" : "use the tag commands"}.`
-          : `> ${user.username} can no longer ${kind === "admins" ? "run admin commands" : "use the tag commands"}.`,
+          ? `> ${user.username} can now ${kind === "admins" ? "run bot admin commands" : "use the bot commands"}.`
+          : `> ${user.username} can no longer ${kind === "admins" ? "run bot admin commands" : "use the bot commands"}.`,
       ], { color: COLORS.green });
     },
   };
@@ -361,11 +371,10 @@ function stripTagCommand() {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
       if (
-        !canUseTags(interaction.guildId, interaction.user.id, context.ownerId) &&
-        !isGuildAdministrator(interaction)
+        !canUseBot(interaction.guildId, interaction.user.id, context.ownerId)
       ) {
         return respond(interaction, "No Access", [
-          "> Ask an admin to add you with `/tag-wl add`.",
+          "> Ask a bot admin to add you with `/whitelist-member add`.",
         ], { color: COLORS.red });
       }
 
@@ -416,9 +425,9 @@ function tagHistoryCommand() {
       if (!requireGuild(interaction)) {
         return respond(interaction, "Server Only", ["> Use this command in a server."]);
       }
-      if (!canManageServer(interaction, context)) {
+      if (!canManageBot(interaction, context)) {
         return respond(interaction, "No Access", [
-          "> Only admins can view command history.",
+          "> Only bot admins can view command history.",
         ], { color: COLORS.red });
       }
 
@@ -462,7 +471,7 @@ const commands = [
 ];
 
 export function getCommands() {
-  return commands;
+  return commands.map(requireBotAllowlist);
 }
 
 export function getCommandPayloads() {
